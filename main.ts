@@ -1,46 +1,54 @@
-// Entry program for the news-image-20261121 bounty.
+// main.ts — plain JavaScript, nothing else. Node 22 executes this file
+// directly, so TypeScript syntax anywhere in it would be a syntax error.
 //
-// The entry is the picture entry.png that sits next to this script. This
-// program only hands that picture to the grader's output folder, byte for
-// byte. It never changes the picture, never uses the network and never
-// reads the clock, so running it twice always writes the same file.
-//
-// Run it outside the grader like this:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// The front page already exists in this repository as entry.png. This
+// program has exactly one job: deliver that picture to the grader's
+// output folder, byte for byte, and prove the delivered copy matches
+// the original before it reports success. It never touches the network
+// and never reads the clock, so two runs always produce the same file.
 
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const IMAGE = "entry.png";
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
-mkdirSync(outDir, { recursive: true });
+const IMAGE_NAME = "entry.png";
 
-const from = new URL(`./${IMAGE}`, import.meta.url);
-const to = join(outDir, IMAGE);
-
-// Refuse an empty source outright: an entry picture with zero bytes is
-// never a valid entry, and catching it here beats hashing nothing.
-if (statSync(from).size === 0) {
-  throw new Error(`copy failed: ${from} is empty`);
+function sha256Hex(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
-copyFileSync(from, to);
+function main() {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sourcePath = join(here, IMAGE_NAME);
+  const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
 
-// Cheap check first: if the sizes differ the copy is already wrong, so
-// there is no point hashing. The hash below is the real proof.
-if (statSync(from).size !== statSync(to).size) {
-  throw new Error(`copy failed: ${to} is ${statSync(to).size} bytes, expected ${statSync(from).size}`);
+  const original = readFileSync(sourcePath);
+  if (original.length === 0) {
+    throw new Error(`${sourcePath} is empty — refusing to deliver a blank picture`);
+  }
+
+  mkdirSync(outDir, { recursive: true });
+  const targetPath = join(outDir, IMAGE_NAME);
+  writeFileSync(targetPath, original);
+
+  const delivered = readFileSync(targetPath);
+  if (delivered.length !== original.length) {
+    throw new Error(
+      `size mismatch after copy: source ${original.length} bytes, delivered ${delivered.length} bytes`,
+    );
+  }
+
+  const sourceHash = sha256Hex(original);
+  const deliveredHash = sha256Hex(delivered);
+  if (deliveredHash !== sourceHash) {
+    throw new Error(`sha256 mismatch after copy: source ${sourceHash}, delivered ${deliveredHash}`);
+  }
+
+  console.log(`wrote ${targetPath}`);
+  console.log(`bytes: ${delivered.length}`);
+  console.log(`source sha256: ${sourceHash}`);
+  console.log(`delivered sha256: ${deliveredHash}`);
 }
 
-function sha256(path) {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
-}
-
-const before = sha256(from);
-const after = sha256(to);
-if (before !== after) {
-  throw new Error(`copy failed: ${to} does not match ${from}`);
-}
-
-console.log(`wrote ${IMAGE} to ${to} (${readFileSync(to).length} bytes, sha256 ${after})`);
+main();
